@@ -2,8 +2,6 @@
 
 A **local** file viewer that lets you browse a project (like GitHub’s file browser), view file contents, and see **git blame** and **agent-trace blame** attribution inline. It is a separate installable product; the agent-trace CLI launches it with `agent-trace viewer` and reports "not available" if it isn’t installed.
 
-**Repository:** [https://github.com/ujjalsharma100/agent-trace-viewer](https://github.com/ujjalsharma100/agent-trace-viewer)
-
 ## Requirements
 
 - **Python 3.9+** (stdlib only; no pip)

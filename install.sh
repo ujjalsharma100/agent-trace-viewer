@@ -4,7 +4,10 @@ set -euo pipefail
 # =========================================================================
 # agent-trace-viewer installer
 #
-# Usage (curl from GitHub / monorepo):
+# Usage (curl from GitHub — standalone viewer repo):
+#   curl -fsSL https://raw.githubusercontent.com/ujjalsharma100/agent-trace-viewer/main/install.sh | bash
+#
+# Usage (curl from monorepo; set branch if needed):
 #   curl -fsSL https://raw.githubusercontent.com/ujjalsharma100/agent-trace/main/agent-trace-viewer/install.sh | bash
 #
 # Usage (local — from repo checkout):
@@ -20,7 +23,7 @@ set -euo pipefail
 
 INSTALL_DIR="${HOME}/.agent-trace"
 VIEWER_DIR="${INSTALL_DIR}/viewer"
-GITHUB_REPO="${AGENT_TRACE_VIEWER_REPO:-https://github.com/ujjalsharma100/agent-trace}"
+GITHUB_REPO="${AGENT_TRACE_VIEWER_REPO:-https://github.com/ujjalsharma100/agent-trace-viewer}"
 GITHUB_BRANCH="${AGENT_TRACE_INSTALL_BRANCH:-main}"
 BIN_DIR="${INSTALL_DIR}/bin"
 
@@ -56,9 +59,10 @@ bootstrap_if_remote() {
         error "curl is required. Install curl or clone the repo and run ./install.sh"
     fi
 
-    local tmpdir tarball
+    local tmpdir tarball repo_name extract_dir viewer_path
     tmpdir="$(mktemp -d)"
-    tarball="${tmpdir}/agent-trace.tar.gz"
+    repo_name="$(basename "${GITHUB_REPO}")"
+    tarball="${tmpdir}/${repo_name}.tar.gz"
 
     if ! curl -fsSL "${GITHUB_REPO}/archive/refs/heads/${GITHUB_BRANCH}.tar.gz" -o "$tarball"; then
         error "Failed to download. Check your network or try again."
@@ -68,8 +72,9 @@ bootstrap_if_remote() {
         error "Failed to extract archive."
     fi
 
-    local extract_dir="${tmpdir}/agent-trace-${GITHUB_BRANCH}"
-    local viewer_path="${extract_dir}/agent-trace-viewer"
+    # GitHub tarball extracts to <repo-name>-<branch> (e.g. agent-trace-viewer-main or agent-trace-main)
+    extract_dir="${tmpdir}/${repo_name}-${GITHUB_BRANCH}"
+    viewer_path="${extract_dir}/agent-trace-viewer"
     if [ ! -f "${viewer_path}/install.sh" ]; then
         viewer_path="${extract_dir}"
         if [ ! -f "${viewer_path}/install.sh" ]; then
