@@ -56,53 +56,50 @@ export default function App() {
   }, [selectedPath]);
 
   if (error) return <div style={{ padding: 16, color: 'red' }}>{error}</div>;
-  if (!project) return <div style={{ padding: 16 }}>Loading project...</div>;
+  if (!project) {
+    return (
+      <div className="app-layout">
+        <div className="empty-state">
+          <div style={{ color: '#6366f1', fontSize: 14 }}>Loading project...</div>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
-      <aside
-        style={{
-          width: 280,
-          borderRight: '1px solid #ccc',
-          padding: 12,
-          overflow: 'auto',
-          flexShrink: 0,
-        }}
-      >
-        <h2 style={{ margin: '0 0 8px 0', fontSize: 14 }}>Project</h2>
-        <p style={{ margin: 0, fontSize: 12, color: '#666' }} title={project.root}>
-          {project.root.replace(/^.*\//, '') || project.root}
-        </p>
-        <p style={{ margin: '4px 0 0 0', fontSize: 11, color: '#888' }}>
-          Storage: {project.storage} · Agent-trace: {project.has_agent_trace ? 'yes' : 'no'}
-        </p>
-        <h3 style={{ margin: '12px 0 4px 0', fontSize: 12 }}>Files</h3>
-        <FileTree
-          selectedPath={selectedPath}
-          onSelectFile={setSelectedPath}
-          project={project}
-        />
+    <div className="app-layout">
+      <aside className="sidebar">
+        <div className="sidebar-header">
+          <h2>Agent Trace</h2>
+          <div className="project-name" title={project.root}>
+            {project.root.replace(/^.*\//, '') || project.root}
+          </div>
+          <div className="project-meta">
+            {project.storage} · {project.has_agent_trace ? 'Traced' : 'No traces'}
+          </div>
+        </div>
+        <div className="sidebar-files">
+          <FileTree
+            selectedPath={selectedPath}
+            onSelectFile={setSelectedPath}
+            project={project}
+          />
+        </div>
+        <div className="sidebar-footer">
+          © Ujjal Sharma 2026
+        </div>
       </aside>
-      <main style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: 0, overflow: 'hidden' }}>
+      <main className="main-area">
         {selectedPath ? (
           <>
-            <div
-              style={{
-                padding: '4px 12px',
-                borderBottom: '1px solid #e0e0e0',
-                fontSize: 12,
-                fontWeight: 500,
-                backgroundColor: '#f8f8f8',
-                flexShrink: 0,
-              }}
-            >
-              {selectedPath}
-            </div>
+            <div className="file-path-bar">{selectedPath}</div>
             <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
               {fileContent.startsWith('Error:') || fileContent === 'Loading...' ? (
-                <pre style={{ margin: 16, fontFamily: 'inherit', color: fileContent.startsWith('Error:') ? 'red' : '#666' }}>
-                  {fileContent}
-                </pre>
+                <div className="empty-state">
+                  <div style={{ color: fileContent.startsWith('Error:') ? '#ef4444' : '#6b7280', fontSize: 13 }}>
+                    {fileContent}
+                  </div>
+                </div>
               ) : (
                 <FileViewer
                   path={selectedPath}
@@ -114,8 +111,9 @@ export default function App() {
             </div>
           </>
         ) : (
-          <div style={{ padding: 16, color: '#888' }}>
-            Select a file from the sidebar.
+          <div className="empty-state">
+            <div className="icon">📄</div>
+            <div>Select a file from the sidebar</div>
           </div>
         )}
       </main>

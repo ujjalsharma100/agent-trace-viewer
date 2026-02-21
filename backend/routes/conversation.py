@@ -1,10 +1,12 @@
 """
-/api/conversation — fetch full conversation content by URL.
+/api/conversation — fetch full conversation content by URL or path.
 
-GET ?url=...
+GET ?url=...  or  ?path=... (path only in local mode)
 Behavior:
   - If url is http:// or https://: return { "open_external": true, "url": "<url>" } so frontend opens in new tab.
-  - If storage is "local" and url is file://: read file under project root, return { "content": "..." }.
+  - If storage is "local": read from filesystem. Accept file://... (absolute or relative) or bare path.
+    Absolute paths (e.g. file:///Users/.../.cursor/.../agent-transcripts/xxx.txt) are allowed if under
+    project root or under the user's home directory. Relative paths are resolved against project root.
   - If storage is "remote": fetch from agent-trace-service GET /api/v1/conversations/content, return { "content": "..." }.
 """
 from __future__ import annotations
@@ -76,21 +78,31 @@ def get_conversation_content(project_root: str, url: str) -> tuple[dict | None, 
     config = _load_project_config(project_root) or {}
     storage = config.get("storage", "local")
 
-    # Local mode: file:// only, under project root
+    # Local mode: read from filesystem. Accept file:// URL (absolute or relative) or bare path.
+    # Absolute paths (e.g. file:///Users/.../.cursor/.../agent-transcripts/xxx.txt) are allowed
+    # if under project root or under the user's home directory (Cursor stores transcripts there).
     if storage == "local":
-        if not url.startswith("file://"):
-            return None, "Local mode supports file:// URLs only", 400
-        path = url[7:].strip()
-        path = unquote(path)
-        if not path:
-            return None, "Invalid file URL", 400
         root = os.path.realpath(os.path.abspath(project_root))
-        full = os.path.normpath(path)
+        home = os.path.realpath(os.path.expanduser("~"))
+        if url.startswith("file://"):
+            path = url[7:].strip()
+            path = unquote(path)
+            if not path:
+                return None, "Invalid file URL", 400
+        else:
+            # Bare path (e.g. .agent-trace/conversations/xyz.json) — use as-is, resolve below
+            path = url
+        # Resolve relative paths against project root
+        if not os.path.isabs(path):
+            full = os.path.normpath(os.path.join(root, path.lstrip("/")))
+        else:
+            full = os.path.normpath(path)
+        full = os.path.realpath(full)
+        # Allow if under project root or under user's home (e.g. ~/.cursor/.../agent-transcripts/)
+        if not full.startswith(root) and not full.startswith(home):
+            return None, "Conversation file is outside project or home directory", 403
         if not os.path.isfile(full):
             return None, "Conversation file not found", 404
-        full = os.path.realpath(full)
-        if not full.startswith(root):
-            return None, "Conversation file is outside project", 403
         try:
             with open(full, "r", encoding="utf-8", errors="replace") as f:
                 content = f.read()

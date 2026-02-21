@@ -1,20 +1,13 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 
 const API = '';
 
-// ---------------------------------------------------------------------------
-// Cursor transcript: one user message + one agent response.
-// Segregate into two dialogue types only; apply markdown to agent, no extra parsing.
-// ---------------------------------------------------------------------------
+/* ─── Parsing ───────────────────────────────────────────── */
 
 const USER_LINE_RE = /^\s*(user|human):\s*$/i;
 const ASSISTANT_LINE_RE = /^\s*assistant:\s*$/i;
 
-/**
- * Split transcript into one user block and one agent block.
- * - User: from first "user:" or "human:" up to first "assistant:" (exclusive), or to end if no assistant.
- * - Agent: from first "assistant:" to end (all subsequent content, including more "assistant:" lines).
- */
 function parseCursorTranscript(content) {
   if (!content || typeof content !== 'string') return [];
   const lines = content.split('\n');
@@ -41,7 +34,6 @@ function parseCursorTranscript(content) {
   return blocks;
 }
 
-/** Parse XML-style tag conversation into blocks (fallback) */
 function parseTaggedConversation(content) {
   if (!content || typeof content !== 'string') return [];
   const blocks = [];
@@ -55,10 +47,7 @@ function parseTaggedConversation(content) {
     if (closeBracket === -1) break;
     const tagPart = s.slice(open + 1, closeBracket).trim();
     const tagName = (tagPart.split(/\s/)[0] || '').toLowerCase();
-    if (!tagNames.includes(tagName)) {
-      pos = open + 1;
-      continue;
-    }
+    if (!tagNames.includes(tagName)) { pos = open + 1; continue; }
     const closeTag = `</${tagName}>`;
     const end = s.indexOf(closeTag, closeBracket + 1);
     if (end === -1) break;
@@ -73,7 +62,6 @@ function parseTaggedConversation(content) {
   return blocks;
 }
 
-/** Cursor format (user:/assistant:) → two blocks; else tag format; else single raw block */
 function parseConversation(content) {
   if (!content || typeof content !== 'string') return [];
   const s = content.trim();
@@ -87,6 +75,8 @@ function parseConversation(content) {
   return [{ role: 'raw', content: s }];
 }
 
+/* ─── Formatting ────────────────────────────────────────── */
+
 function escapeHtml(text) {
   if (!text) return '';
   return String(text)
@@ -96,7 +86,6 @@ function escapeHtml(text) {
     .replace(/\n/g, '<br/>');
 }
 
-/** Apply markdown only: **bold**, `code`, ```blocks```. No extra parsing. */
 function applyMarkdown(text) {
   if (!text) return '';
   const placeholders = [];
@@ -118,7 +107,6 @@ function applyMarkdown(text) {
   return out;
 }
 
-/** User block: optionally strip <user_query> inner text, then escape (no markdown). */
 function formatUserContent(text) {
   if (!text) return '';
   const m = text.match(/<user_query>([\s\S]*?)<\/user_query>/i);
@@ -126,241 +114,152 @@ function formatUserContent(text) {
   return escapeHtml(plain);
 }
 
-/** Agent block: show as-is with markdown only. */
 function formatAgentContent(text) {
   return applyMarkdown(text || '');
 }
 
-const AGENT_ROLES = new Set(['assistant', 'ai', 'message']);
-const AGENT_PREVIEW_LEN = 400;
-const AGENT_CONTENT_MAX_HEIGHT = 320;
+/* ─── Components ────────────────────────────────────────── */
 
-function ConversationBlock({ block, index, expandAllAgents, expandedBlocks, onToggleBlock }) {
+const AGENT_ROLES = new Set(['assistant', 'ai', 'message']);
+const COLLAPSE_THRESHOLD = 300; // characters before auto-collapse
+
+/**
+ * ChatBubble — each message is collapsible like a section.
+ * Long messages start collapsed; short ones start expanded.
+ * When expanded, full content is visible with no max-height cap.
+ */
+function ChatBubble({ block, index }) {
   const isAgent = AGENT_ROLES.has(block.role);
+  const isUser = block.role === 'user' || block.role === 'human';
   const isCursor = block.format === 'cursor';
-  const isAgentBlock = isAgent && (block.role === 'assistant' || block.role === 'ai' || block.role === 'message');
-  const isLongAgent = isAgentBlock && block.content.length > AGENT_PREVIEW_LEN;
-  const effectiveExpanded = expandAllAgents === true || !isLongAgent || (expandedBlocks && expandedBlocks.has(index));
-  const displayContent =
-    isLongAgent && !effectiveExpanded ? block.content.slice(0, AGENT_PREVIEW_LEN) + '…' : block.content;
+  const isLong = block.content.length > COLLAPSE_THRESHOLD;
+  const [collapsed, setCollapsed] = useState(isLong);
 
   const formatted =
-    isCursor && block.role === 'user'
+    isCursor && isUser
       ? formatUserContent(block.content)
       : isCursor && block.role === 'assistant'
-        ? formatAgentContent(displayContent)
+        ? formatAgentContent(block.content)
         : block.format === 'tag' || block.role === 'raw'
           ? escapeHtml(block.content)
-          : formatAgentContent(displayContent);
+          : formatAgentContent(block.content);
 
-  const label = block.role === 'user' ? 'User' : block.role === 'assistant' ? 'Agent' : block.role;
+  const roleClass = isUser ? 'user' : isAgent ? 'assistant' : 'raw';
+  const label = isUser ? 'You' : isAgent ? 'Agent' : block.role;
+  const initial = isUser ? 'U' : isAgent ? 'A' : '?';
+
+  // Preview: first ~120 chars for collapsed long messages
+  const previewText = isLong && collapsed ? block.content.slice(0, 120).replace(/\n/g, ' ') + '...' : null;
 
   return (
-    <div
-      style={{
-        marginBottom: 12,
-        border: '1px solid #e0e0e0',
-        borderRadius: 6,
-        overflow: 'hidden',
-        backgroundColor: isAgent ? '#fafbfc' : '#fff',
-      }}
-    >
-      <div
-        style={{
-          padding: '6px 10px',
-          fontSize: 11,
-          fontWeight: 600,
-          textTransform: 'capitalize',
-          color: isAgent ? '#0a7c42' : '#0969da',
-          backgroundColor: isAgent ? '#e8f5e9' : '#e8f4fc',
-          borderBottom: '1px solid #e0e0e0',
-        }}
+    <div className={`chat-bubble ${roleClass}`}>
+      {/* Clickable header — toggles collapse */}
+      <button
+        type="button"
+        className="chat-bubble-header"
+        onClick={() => setCollapsed(!collapsed)}
       >
-        {label}
-      </div>
-      <div
-        style={{
-          padding: 10,
-          fontSize: 12,
-          fontFamily: 'inherit',
-          whiteSpace: 'pre-wrap',
-          wordBreak: 'break-word',
-          lineHeight: 1.45,
-          maxHeight: isLongAgent && !effectiveExpanded
-            ? 120
-            : isLongAgent && effectiveExpanded
-              ? AGENT_CONTENT_MAX_HEIGHT
-              : undefined,
-          overflow: isLongAgent && !effectiveExpanded
-            ? 'hidden'
-            : isLongAgent && effectiveExpanded
-              ? 'auto'
-              : 'visible',
-        }}
-        dangerouslySetInnerHTML={{ __html: formatted }}
-      />
-      {isLongAgent && (
-        <div style={{ padding: '0 10px 10px' }}>
-          <button
-            type="button"
-            onClick={() => onToggleBlock && onToggleBlock(index, effectiveExpanded)}
-            style={{
-              padding: '4px 10px',
-              fontSize: 11,
-              color: '#0969da',
-              background: 'none',
-              border: '1px solid #0969da',
-              borderRadius: 4,
-              cursor: 'pointer',
-            }}
+        <span className="collapse-chevron">{collapsed ? '▸' : '▾'}</span>
+        <div className="chat-bubble-avatar">{initial}</div>
+        <span className="chat-role-label">{label}</span>
+        {previewText && <span className="chat-preview">{previewText}</span>}
+      </button>
+
+      {/* Body — only rendered when expanded */}
+      {!collapsed && (
+        <div
+          className="chat-bubble-body"
+          dangerouslySetInnerHTML={{ __html: formatted }}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ─── SVG Icons ─────────────────────────────────────────── */
+
+const ChatIcon = () => (
+  <svg className="chat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+  </svg>
+);
+
+const MaximizeIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="15 3 21 3 21 9" />
+    <polyline points="9 21 3 21 3 15" />
+    <line x1="21" y1="3" x2="14" y2="10" />
+    <line x1="3" y1="21" x2="10" y2="14" />
+  </svg>
+);
+
+/* ─── Inline conversation panel (for side pane) ─────────── */
+
+export function ConversationPanel({ content, loading, error, onRetry, onMaximize }) {
+  const [open, setOpen] = useState(true);
+  const blocks = content != null ? parseConversation(content) : [];
+
+  return (
+    <div className="detail-card conv-card">
+      {/* Collapsible header */}
+      <button
+        type="button"
+        className="detail-card-header collapsible conv-header-btn"
+        onClick={() => setOpen(!open)}
+      >
+        <span className="collapse-chevron">{open ? '▾' : '▸'}</span>
+        <ChatIcon />
+        <span>Conversation</span>
+        {/* Maximize button in the header bar */}
+        {onMaximize && (
+          <span
+            className="conv-maximize-inline"
+            onClick={(e) => { e.stopPropagation(); onMaximize(); }}
+            title="Open in full view"
           >
-            {effectiveExpanded ? 'Collapse' : 'Expand'}
-          </button>
+            <MaximizeIcon />
+          </span>
+        )}
+      </button>
+
+      {open && (
+        <div className="conv-body">
+          {loading && (
+            <div style={{ color: '#9ca3af', fontSize: 12, textAlign: 'center', padding: 20 }}>
+              Loading conversation...
+            </div>
+          )}
+          {error && (
+            <div style={{ color: '#ef4444', fontSize: 12, textAlign: 'center', padding: 20 }}>
+              {error}
+              {onRetry && <button type="button" onClick={onRetry} className="conv-retry-btn">Retry</button>}
+            </div>
+          )}
+          {!loading && !error && blocks.length === 0 && content != null && (
+            <pre style={{
+              margin: 0, fontSize: 12,
+              fontFamily: "'SF Mono', ui-monospace, monospace",
+              whiteSpace: 'pre-wrap', wordBreak: 'break-word', color: '#374151',
+            }}>
+              {content}
+            </pre>
+          )}
+          {!loading && !error && blocks.length > 0 &&
+            blocks.map((block, i) => (
+              <ChatBubble key={i} block={block} index={i} />
+            ))}
         </div>
       )}
     </div>
   );
 }
 
-/** Inline conversation panel for the side pane: fills remaining height, scrollable body. */
-export function ConversationPanel({ content, loading, error, onClose, onRetry }) {
-  const [expandAllAgents, setExpandAllAgents] = useState(false);
-  const [expandedBlocks, setExpandedBlocks] = useState(() => new Set());
-  const blocks = content != null ? parseConversation(content) : [];
-  const hasLongAgent = blocks.some(
-    (b) => AGENT_ROLES.has(b.role) && b.content && b.content.length > AGENT_PREVIEW_LEN
-  );
-
-  const handleExpandAllChange = (checked) => {
-    setExpandAllAgents(checked);
-    if (!checked) setExpandedBlocks(new Set());
-  };
-
-  const handleToggleBlock = (index, currentlyExpanded) => {
-    if (currentlyExpanded) {
-      setExpandedBlocks((prev) => {
-        const next = new Set(prev);
-        next.delete(index);
-        return next;
-      });
-      setExpandAllAgents(false);
-    } else {
-      setExpandedBlocks((prev) => new Set(prev).add(index));
-      setExpandAllAgents(false);
-    }
-  };
-
-  return (
-    <section
-      style={{
-        marginTop: 12,
-        border: '1px solid #e0e0e0',
-        borderRadius: 6,
-        overflow: 'hidden',
-        display: 'flex',
-        flexDirection: 'column',
-        minHeight: 0,
-        flex: 1,
-      }}
-    >
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: '6px 8px',
-          borderBottom: '1px solid #e0e0e0',
-          backgroundColor: '#f0f0f0',
-          fontSize: 11,
-          fontWeight: 600,
-          flexShrink: 0,
-        }}
-      >
-        <span style={{ color: '#333' }}>Conversation</span>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          {!loading && !error && hasLongAgent && (
-            <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, cursor: 'pointer', fontWeight: 400 }}>
-              <input
-                type="checkbox"
-                checked={expandAllAgents}
-                onChange={(e) => handleExpandAllChange(e.target.checked)}
-              />
-              <span>{expandAllAgents ? 'Collapse all' : 'Expand all'}</span>
-            </label>
-          )}
-          <button
-            type="button"
-            onClick={onClose}
-            style={{
-              padding: '2px 8px',
-              fontSize: 10,
-              border: '1px solid #ccc',
-              borderRadius: 4,
-              cursor: 'pointer',
-              backgroundColor: '#fff',
-            }}
-          >
-            Close
-          </button>
-        </div>
-      </div>
-      <div
-        style={{
-          flex: 1,
-          minHeight: 0,
-          overflow: 'auto',
-          padding: 8,
-          fontSize: 11,
-        }}
-      >
-        {loading && <div style={{ color: '#666', fontSize: 11 }}>Loading conversation…</div>}
-        {error && (
-          <div style={{ color: '#c00', fontSize: 11 }}>
-            {error}
-            <button
-              type="button"
-              onClick={onRetry}
-              style={{ marginLeft: 6, padding: '2px 6px', fontSize: 10, cursor: 'pointer' }}
-            >
-              Retry
-            </button>
-          </div>
-        )}
-        {!loading && !error && blocks.length === 0 && content != null && (
-          <pre
-            style={{
-              margin: 0,
-              fontSize: 11,
-              fontFamily: 'ui-monospace, monospace',
-              whiteSpace: 'pre-wrap',
-              wordBreak: 'break-word',
-            }}
-          >
-            {content}
-          </pre>
-        )}
-        {!loading && !error && blocks.length > 0 &&
-          blocks.map((block, i) => (
-            <ConversationBlock
-              key={i}
-              block={block}
-              index={i}
-              expandAllAgents={expandAllAgents}
-              expandedBlocks={expandedBlocks}
-              onToggleBlock={handleToggleBlock}
-            />
-          ))}
-      </div>
-    </section>
-  );
-}
+/* ─── Full-screen modal version ─────────────────────────── */
 
 export default function ConversationModal({ conversationUrl, onClose }) {
   const [content, setContent] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [expandAllAgents, setExpandAllAgents] = useState(false);
-  const [expandedBlocks, setExpandedBlocks] = useState(() => new Set());
 
   const fetchContent = useCallback(() => {
     if (!conversationUrl) return;
@@ -387,140 +286,71 @@ export default function ConversationModal({ conversationUrl, onClose }) {
       });
   }, [conversationUrl]);
 
+  useEffect(() => { fetchContent(); }, [fetchContent]);
+
+  // Close on Escape key
   useEffect(() => {
-    fetchContent();
-  }, [fetchContent]);
+    const handler = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [onClose]);
+
+  // Lock body scroll so only the modal body scrolls (stops background from scrolling)
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prev; };
+  }, []);
 
   const blocks = content != null ? parseConversation(content) : [];
-  const hasLongAgent = blocks.some(
-    (b) => AGENT_ROLES.has(b.role) && b.content && b.content.length > AGENT_PREVIEW_LEN
-  );
+  const overlayRef = useRef(null);
 
-  const handleExpandAllChange = (checked) => {
-    setExpandAllAgents(checked);
-    if (!checked) setExpandedBlocks(new Set());
+  // Only prevent wheel when scrolling over the backdrop (not the modal content), so modal body scrolls
+  const handleOverlayWheel = (e) => {
+    if (e.target === overlayRef.current) e.preventDefault();
   };
 
-  const handleToggleBlock = (index, currentlyExpanded) => {
-    if (currentlyExpanded) {
-      setExpandedBlocks((prev) => {
-        const next = new Set(prev);
-        next.delete(index);
-        return next;
-      });
-      setExpandAllAgents(false);
-    } else {
-      setExpandedBlocks((prev) => new Set(prev).add(index));
-      setExpandAllAgents(false);
-    }
-  };
-
-  return (
+  const modal = (
     <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 1000,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: 'rgba(0,0,0,0.4)',
-      }}
+      ref={overlayRef}
+      className="conv-modal-overlay"
       onClick={(e) => e.target === e.currentTarget && onClose()}
+      onWheel={handleOverlayWheel}
+      style={{ overflow: 'hidden' }}
     >
-      <div
-        style={{
-          width: '90%',
-          maxWidth: 720,
-          maxHeight: '85vh',
-          backgroundColor: '#fff',
-          borderRadius: 8,
-          boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
-          display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden',
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            padding: '12px 16px',
-            borderBottom: '1px solid #e0e0e0',
-            backgroundColor: '#f8f8f8',
-            flexShrink: 0,
-          }}
-        >
-          <h3 style={{ margin: 0, fontSize: 14, fontWeight: 600 }}>Conversation</h3>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            {hasLongAgent && (
-              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, cursor: 'pointer', fontWeight: 400 }}>
-                <input
-                  type="checkbox"
-                  checked={expandAllAgents}
-                  onChange={(e) => handleExpandAllChange(e.target.checked)}
-                />
-                <span>{expandAllAgents ? 'Collapse all' : 'Expand all'}</span>
-              </label>
-            )}
-            <button
-              type="button"
-              onClick={onClose}
-              style={{
-                padding: '4px 12px',
-                fontSize: 12,
-                border: '1px solid #ccc',
-                borderRadius: 4,
-                cursor: 'pointer',
-                backgroundColor: '#fff',
-              }}
-            >
-              Close
-            </button>
-          </div>
+      <div className="conv-modal-content" onClick={(e) => e.stopPropagation()}>
+        <div className="conv-modal-header">
+          <h3 className="conv-modal-title">
+            <ChatIcon />
+            Conversation
+          </h3>
+          <button type="button" className="conv-modal-close-btn" onClick={onClose}>
+            Close &times;
+          </button>
         </div>
-        <div style={{ flex: 1, overflow: 'auto', padding: 16 }}>
-          {loading && <div style={{ color: '#666', fontSize: 13 }}>Loading conversation…</div>}
-          {error && (
-            <div style={{ color: '#c00', fontSize: 13 }}>
-              {error}
-              <button
-                type="button"
-                onClick={fetchContent}
-                style={{ marginLeft: 8, padding: '2px 8px', fontSize: 12, cursor: 'pointer' }}
-              >
-                Retry
-              </button>
-            </div>
-          )}
-          {!loading && !error && blocks.length === 0 && (
-            <pre
-              style={{
-                margin: 0,
-                fontSize: 12,
-                fontFamily: 'ui-monospace, monospace',
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-word',
-              }}
-            >
-              {content}
-            </pre>
-          )}
-          {!loading && !error && blocks.length > 0 &&
-            blocks.map((block, i) => (
-              <ConversationBlock
-                key={i}
-                block={block}
-                index={i}
-                expandAllAgents={expandAllAgents}
-                expandedBlocks={expandedBlocks}
-                onToggleBlock={handleToggleBlock}
-              />
-            ))}
+        <div className="conv-modal-scroll">
+          <div className="conv-modal-body">
+            {loading && <div style={{ color: '#9ca3af', fontSize: 13, textAlign: 'center', padding: 40 }}>Loading conversation...</div>}
+            {error && (
+              <div style={{ color: '#ef4444', fontSize: 13, textAlign: 'center', padding: 40 }}>
+                {error}
+                <button type="button" onClick={fetchContent} className="conv-retry-btn" style={{ marginLeft: 8 }}>Retry</button>
+              </div>
+            )}
+            {!loading && !error && blocks.length === 0 && (
+              <pre style={{ margin: 0, fontSize: 12, fontFamily: "'SF Mono', ui-monospace, monospace", whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                {content}
+              </pre>
+            )}
+            {!loading && !error && blocks.length > 0 &&
+              blocks.map((block, i) => (
+                <ChatBubble key={i} block={block} index={i} />
+              ))}
+          </div>
         </div>
       </div>
     </div>
   );
+
+  return createPortal(modal, document.body);
 }

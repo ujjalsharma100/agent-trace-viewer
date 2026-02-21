@@ -120,9 +120,10 @@ class ViewerHandler(BaseHTTPRequestHandler):
     def _api_conversation(self):
         from .routes.conversation import get_conversation_content
         query = parse_qs(urlparse(self.path).query)
-        url = (query.get("url") or [""])[0]
+        # In local mode, path= is accepted as well as url= (file:// or bare path)
+        url = (query.get("url") or query.get("path") or [""])[0]
         if not url:
-            self._send_error_json("url required", status=400)
+            self._send_error_json("url or path required", status=400)
             return
         result, err, status = get_conversation_content(PROJECT_ROOT, url)
         if result is not None:

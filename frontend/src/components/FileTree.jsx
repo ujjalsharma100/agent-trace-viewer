@@ -25,35 +25,22 @@ function TreeNode({
   };
 
   return (
-    <div style={{ marginLeft: level * 12 }}>
+    <div>
       <button
         type="button"
         onClick={handleClick}
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 4,
-          width: '100%',
-          padding: '2px 4px',
-          background: isSelected ? 'rgba(0,102,204,0.12)' : 'none',
-          border: 'none',
-          cursor: 'pointer',
-          textAlign: 'left',
-          fontFamily: 'inherit',
-          fontSize: 13,
-          color: isDir ? '#06c' : '#333',
-        }}
+        className={`tree-node-btn ${isDir ? 'dir-node' : ''} ${isSelected ? 'selected' : ''}`}
+        style={{ paddingLeft: 12 + level * 16 }}
       >
         {isDir && (
-          <span style={{ width: 14, display: 'inline-block' }}>
-            {isExpanded ? '▼' : '▶'}
-          </span>
+          <span className="chevron">{isExpanded ? '▾' : '▸'}</span>
         )}
-        {!isDir && <span style={{ width: 14, display: 'inline-block' }} />}
-        <span title={entry.path}>{isDir ? '📁 ' : '📄 '}{entry.name}</span>
+        {!isDir && <span className="chevron" />}
+        <span className="icon">{isDir ? '📁' : '📄'}</span>
+        <span className="name" title={entry.path}>{entry.name}</span>
       </button>
       {isDir && isExpanded && Array.isArray(children) && (
-        <div style={{ marginLeft: 0 }}>
+        <div>
           {children.map((child) => (
             <TreeNode
               key={child.path}
@@ -121,11 +108,11 @@ export default function FileTree({ selectedPath, onSelectFile, project }) {
     [fetchTree, treeCache]
   );
 
-  if (error) return <div style={{ padding: 8, fontSize: 12, color: 'red' }}>{error}</div>;
-  if (loading) return <div style={{ padding: 8, fontSize: 12, color: '#666' }}>Loading tree…</div>;
+  if (error) return <div style={{ padding: 8, fontSize: 12, color: '#ef4444' }}>{error}</div>;
+  if (loading) return <div style={{ padding: 12, fontSize: 12, color: 'rgba(205,214,244,0.5)' }}>Loading...</div>;
 
   return (
-    <div style={{ padding: '4px 0' }}>
+    <div>
       {rootEntries.map((entry) => (
         <TreeNode
           key={entry.path}
