@@ -728,34 +728,36 @@ export default function FileViewer({ path, content, gitBlameSegments, agentTrace
                 <CollapsibleSection title="Trace Attribution" headerClass="trace" defaultOpen={true}>
                   {detailAttr ? (
                     <>
-                      <div className="detail-row">
-                        <span className="dl">Type</span>
-                        <span className="dv">
-                          <span className={`attr-badge ${(detailAttr.attribution_label || 'ai').toLowerCase()}`} style={{ fontSize: 10 }}>
-                            {detailAttr.attribution_label || 'AI'}
-                          </span>
-                        </span>
-                      </div>
-                      {detailAttr.source && <div className="detail-row"><span className="dl">Source</span><span className="dv">{detailAttr.source}</span></div>}
-                      {detailAttr.tier != null && <div className="detail-row"><span className="dl">Tier</span><span className="dv">{detailAttr.tier}</span></div>}
-                      {detailAttr.confidence != null && (
-                        <>
-                          <div className="detail-row"><span className="dl">Confidence</span><span className="dv">{(detailAttr.confidence * 100).toFixed(0)}%</span></div>
-                          <div className="confidence-bar">
-                            <div className="confidence-fill" style={{
-                              width: `${detailAttr.confidence * 100}%`,
-                              background: detailAttr.confidence > 0.8 ? 'hsl(145, 55%, 42%)' : detailAttr.confidence > 0.5 ? 'hsl(30, 65%, 50%)' : 'hsl(0, 60%, 55%)',
-                            }} />
-                          </div>
-                        </>
+                      {detailAttr.model_id && (
+                        <div className="detail-row" style={{ marginBottom: 6 }}>
+                          <span className="dl">Model</span>
+                          <span className="dv mono" style={{ fontWeight: 700, fontSize: 12, color: '#1d4ed8' }}>{detailAttr.model_id}</span>
+                        </div>
                       )}
-                      {detailAttr.model_id && <div className="detail-row"><span className="dl">Model</span><span className="dv mono">{detailAttr.model_id}</span></div>}
+                      {detailAttr.contributor_type && (
+                        <div className="detail-row">
+                          <span className="dl">Contributor</span>
+                          <span className="dv">
+                            <span className={`attr-badge ${(detailAttr.attribution_label || detailAttr.contributor_type || 'ai').toLowerCase()}`} style={{ fontSize: 10 }}>
+                              {detailAttr.contributor_type}
+                            </span>
+                          </span>
+                        </div>
+                      )}
                       {detailAttr.trace_id && <div className="detail-row"><span className="dl">Trace ID</span><span className="dv mono">{detailAttr.trace_id}</span></div>}
-                      {detailAttr.contributor_type && <div className="detail-row"><span className="dl">Contributor</span><span className="dv">{detailAttr.contributor_type}</span></div>}
-                      {detailAttr.tool && <div className="detail-row"><span className="dl">Tool</span><span className="dv">{typeof detailAttr.tool === 'object' ? (detailAttr.tool.name || JSON.stringify(detailAttr.tool)) : detailAttr.tool}</span></div>}
+                      {detailAttr.timestamp && <div className="detail-row"><span className="dl">Timestamp</span><span className="dv mono">{new Date(detailAttr.timestamp).toLocaleString()}</span></div>}
+                      {detailAttr.tool && (
+                        <div className="detail-row">
+                          <span className="dl">Tool</span>
+                          <span className="dv mono">
+                            {typeof detailAttr.tool === 'object'
+                              ? `${detailAttr.tool.name || '—'}${detailAttr.tool.version ? ` v${detailAttr.tool.version}` : ''}`
+                              : detailAttr.tool}
+                          </span>
+                        </div>
+                      )}
                       {detailAttr.commit_sha && <div className="detail-row"><span className="dl">Commit</span><span className="dv mono">{detailAttr.commit_sha}</span></div>}
                       <div className="detail-row"><span className="dl">Lines</span><span className="dv mono">{detailAttr.start_line ?? detailAttr.startLine}–{detailAttr.end_line ?? detailAttr.endLine}</span></div>
-                      {detailAttr.signals && detailAttr.signals.length > 0 && <div className="detail-row"><span className="dl">Signals</span><span className="dv">{detailAttr.signals.join(', ')}</span></div>}
                       {detailAttr.conversation_summary && <div style={{ marginTop: 6, fontSize: 11, color: '#6b7280', lineHeight: 1.4 }}>{detailAttr.conversation_summary}</div>}
                     </>
                   ) : (
@@ -956,23 +958,22 @@ export default function FileViewer({ path, content, gitBlameSegments, agentTrace
           {popover.attr && (
             <>
               <div className="pop-header">
-                <span className={`pop-badge ${(popover.attr.attribution_label || 'ai').toLowerCase()}`}>
-                  {popover.attr.attribution_label || 'AI'}
+                <span className={`pop-badge ${(popover.attr.attribution_label || popover.attr.contributor_type || 'ai').toLowerCase()}`}>
+                  {popover.attr.contributor_type || popover.attr.attribution_label || 'AI'}
                 </span>
-                {popover.attr.model_id && <span style={{ fontSize: 11, color: '#6b7280' }}>{popover.attr.model_id}</span>}
+                {popover.attr.model_id && <span style={{ fontSize: 12, fontWeight: 700, color: '#1d4ed8' }}>{popover.attr.model_id}</span>}
               </div>
-              {popover.attr.confidence != null && (
-                <>
-                  <div className="pop-row"><span className="label">Confidence</span><span className="value">{(popover.attr.confidence * 100).toFixed(0)}%</span></div>
-                  <div className="pop-confidence">
-                    <div className="pop-confidence-fill" style={{
-                      width: `${popover.attr.confidence * 100}%`,
-                      background: popover.attr.confidence > 0.8 ? 'hsl(145, 55%, 42%)' : popover.attr.confidence > 0.5 ? 'hsl(30, 65%, 50%)' : 'hsl(0, 60%, 55%)',
-                    }} />
-                  </div>
-                </>
+              {popover.attr.timestamp && <div className="pop-row"><span className="label">Timestamp</span><span className="value">{new Date(popover.attr.timestamp).toLocaleString()}</span></div>}
+              {popover.attr.tool && (
+                <div className="pop-row">
+                  <span className="label">Tool</span>
+                  <span className="value">
+                    {typeof popover.attr.tool === 'object'
+                      ? `${popover.attr.tool.name || '—'}${popover.attr.tool.version ? ` v${popover.attr.tool.version}` : ''}`
+                      : popover.attr.tool}
+                  </span>
+                </div>
               )}
-              {popover.attr.tier != null && <div className="pop-row"><span className="label">Tier</span><span className="value">{popover.attr.tier}</span></div>}
               <div className="pop-row"><span className="label">Lines</span><span className="value">{popover.attr.start_line ?? popover.attr.startLine}–{popover.attr.end_line ?? popover.attr.endLine}</span></div>
               {popover.attr.trace_id && <div className="pop-row"><span className="label">Trace</span><span className="value">{popover.attr.trace_id}</span></div>}
             </>
